@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>實時攝像頭檢測 - yolo_backend</title>
+    <style>
+      body { font-family: Arial, Helvetica, sans-serif; margin: 24px; }
+      .box { max-width: 960px; margin: auto; }
+      #video { border: 2px solid #333; width: 100%; max-width: 640px; margin: 10px 0; }
+      #canvas { display: none; }
+      #result { border: 2px solid #0c0; width: 100%; max-width: 640px; margin: 10px 0; }
+      button { padding: 8px 16px; margin: 5px; font-size: 14px; cursor: pointer; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .status { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 4px; }
+      .info { color: #666; font-size: 12px; }
+      a { color: #0066cc; }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <h1>實時攝像頭檢測（YOLO 人流計數）</h1>
+      <p><a href="/">← 回到上傳頁面</a></p>
+
+      <div class="status">
+        <p>狀態：<span id="status">就緒</span></p>
+        <p class="info">
+          首次使用需要允許網站存取攝像頭。FPS 根據檢測速度自動調整（約 1-2 秒一幀）。
+        </p>
+      </div>
+
+      <h3>攝像頭串流</h3>
+      <video id="video" autoplay playsinline></video>
+      <canvas id="canvas"></canvas>
+
+      <div>
+        <button id="startBtn" type="button">開始檢測</button>
+        <button id="stopBtn" type="button" disabled>停止檢測</button>
+        <button id="captureBtn" type="button">拍照 (發送檢測)</button>
+      </div>
+
+      <h3>檢測結果</h3>
+      <img id="result" src="" alt="檢測結果" style="display: none; border: 2px solid #0c0; width: 100%; max-width: 640px; margin: 10px 0;">
+      <div style="border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin: 10px 0;">
+        <p class="info">人數：<strong id="detection-people">-</strong> | 時間：<strong id="detection-time">-</strong>ms</p>
+        <button id="downloadBtn" type="button" disabled style="background-color: #0066cc; color: white; padding: 8px 16px; margin: 5px; cursor: pointer;">⬇ 下載檢測結果</button>
+        <button id="downloadCsvBtn" type="button" disabled style="background-color: #009900; color: white; padding: 8px 16px; margin: 5px; cursor: pointer;">📊 下載統計 CSV</button>
+      </div>
+    </div>
+
+    <script>
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const result = document.getElementById('result');
+      const statusElem = document.getElementById('status');
+      const detectionInfoElem = document.getElementById('detection-info');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const captureBtn = document.getElementById('captureBtn');
+
+      let stream = null;
+      let isRunning = false;
+      let frameCount = 0;
+      let lastResultBase64 = null;
+      let detectionStats = [];
+
+      startBtn.addEventListener('click', async () => {
+        try {
+          statusElem.textContent = '要求攝像頭權限...';
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 } }
+          });
+          video.srcObject = stream;
+          statusElem.textContent = '攝像頭已連接，按「開始檢測」';
+          startBtn.disabled = true;
+          stopBtn.disabled = false;
+          captureBtn.disabled = false;
+          startDetection();
+        } catch (err) {
+          statusElem.textContent = `錯誤: ${err.message}`;
+        }
+      });
+
+      stopBtn.addEventListener('click', () => {
+        isRunning = false;
+        statusElem.textContent = '已停止';
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          stream = null;
+        }
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        captureBtn.disabled = true;
+      });
+
+      captureBtn.addEventListener('click', () => {
+        if (stream && video.videoWidth > 0) {
+          sendFrame();
+        }
+      });
+
+      document.getElementById('downloadBtn').addEventListener('click', () => {
+        if (lastResultBase64) {
+          const link = document.createElement('a');
+          link.href = 'data:image/jpeg;base64,' + lastResultBase64;
+          link.download = `detection_${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
+          link.click();
+        }
+      });
+
+      document.getElementById('downloadCsvBtn').addEventListener('click', () => {
+        if (detectionStats.length === 0) {
+          alert('尚無統計數據');
+          return;
+        }
+        let csv = 'Timestamp,PeopleCount,InferenceTime\n';
+        detectionStats.forEach(stat => {
+          csv += `${stat.timestamp},${stat.people},${stat.time.toFixed(2)}\n`;
+        });
+        const link = document.createElement('a');
+        link.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+        link.download = `detection_stats_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+        link.click();
+      });
+
+      function startDetection() {
+        isRunning = true;
+        statusElem.textContent = '檢測中...';
+        frameCount = 0;
+        detectLoop();
+      }
+
+      function detectLoop() {
+        if (!isRunning || !stream) return;
+
+        frameCount++;
+        if (frameCount % 15 === 0) { // 每 15 幀發送一次（根據幀率自動調整）
+          sendFrame();
+        }
+
+        requestAnimationFrame(detectLoop);
+      }
+
+      function sendFrame() {
+        if (!video.videoWidth || !video.videoHeight) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+
+        canvas.toBlob(blob => {
+          const formData = new FormData();
+          formData.append('image', blob, 'frame.jpg');
+
+          statusElem.textContent = '檢測中...';
+          fetch('/api/detect', {
+            method: 'POST',
+            body: formData
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.image) {
+              result.src = 'data:image/jpeg;base64,' + data.image;
+              result.style.display = 'block';
+              lastResultBase64 = data.image;
+              document.getElementById('downloadBtn').disabled = false;
+              document.getElementById('downloadCsvBtn').disabled = false;
+              
+              document.getElementById('detection-people').textContent = data.people_count;
+              document.getElementById('detection-time').textContent = data.inference_time.toFixed(1);
+              
+              detectionStats.push({
+                timestamp: new Date().toISOString(),
+                people: data.people_count,
+                time: data.inference_time
+              });
+              
+              statusElem.textContent = `✓ 檢測完成 (人數: ${data.people_count})`;
+            }
+          })
+          .catch(err => {
+            statusElem.textContent = `檢測錯誤: ${err}`;
+            console.error(err);
+          });
+        }, 'image/jpeg', 0.85);
+      }
+    </script>
+  </body>
+</html>
