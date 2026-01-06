@@ -93,4 +93,7 @@ ls tracking_results
 cat tracking_results/人流统计报告.txt
 ```
 
+API
+curl http://127.0.0.1:5000/api/latest_result
+
 
