@@ -19,6 +19,10 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'video')
 app.config['RESULTS_FOLDER'] = os.path.join(os.getcwd(), 'tracking_results')
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5 GB limit
+# By default we DO NOT save the stdout/stderr of the detection script to disk.
+# Set to True if you want to keep a persistent `detection_run.log` in `tracking_results/`.
+app.config['SAVE_DETECTION_LOG'] = False
+app.config['DETECTION_LOG_NAME'] = 'detection_run.log'
 app.secret_key = 'change-me-for-production'
 
 # 全域 YOLO 模型（延遲載入）
@@ -82,17 +86,22 @@ def download_result(filename):
 
 @app.route('/run_detection', methods=['POST'])
 def run_detection():
-    """在背景啟動 检测人流.py 並將輸出寫入 tracking_results/detection_run.log"""
+    """在背景啟動 检测人流.py。是否保存輸出取決於 `app.config['SAVE_DETECTION_LOG']`。"""
     os.makedirs(app.config['RESULTS_FOLDER'], exist_ok=True)
-    log_path = os.path.join(app.config['RESULTS_FOLDER'], 'detection_run.log')
     python_exec = sys.executable
     script_path = os.path.join(os.getcwd(), '检测人流.py')
 
     try:
-        # 以背景程序啟動，將 stdout/stderr 附加到 log
-        log_file = open(log_path, 'ab')
-        process = subprocess.Popen([python_exec, script_path], stdout=log_file, stderr=log_file)
-        flash(f'已啟動檢測（PID {process.pid}），請稍候查看 tracking_results/detection_run.log')
+        if app.config.get('SAVE_DETECTION_LOG', False):
+            log_path = os.path.join(app.config['RESULTS_FOLDER'], app.config.get('DETECTION_LOG_NAME', 'detection_run.log'))
+            # 以背景程序啟動，將 stdout/stderr 附加到 log
+            log_file = open(log_path, 'ab')
+            process = subprocess.Popen([python_exec, script_path], stdout=log_file, stderr=log_file)
+            flash(f'已啟動檢測（PID {process.pid}），請稍候查看 tracking_results/{os.path.basename(log_path)}')
+        else:
+            # 不保存日誌，將 stdout/stderr 丟棄
+            process = subprocess.Popen([python_exec, script_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            flash(f'已啟動檢測（PID {process.pid}），日誌未保存（SAVE_DETECTION_LOG=False）')
     except Exception as e:
         flash(f'啟動檢測失敗: {e}')
 
