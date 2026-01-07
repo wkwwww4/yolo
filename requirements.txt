@@ -1,0 +1,9 @@
+Flask>=3.1.2
+numpy>=1.25
+opencv-python-headless>=4.8.1
+ultralytics>=8.0.0
+torch>=2.2.0
+torchvision>=0.17.0
+# Optional / helpful
+# - If you are using CUDA, install the matching torch + torchvision from https://pytorch.org/
+# - For headless containers, prefer opencv-python-headless instead of opencv-python
