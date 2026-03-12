@@ -21,8 +21,9 @@
 啟動方式（在專案根目錄並啟用虛擬環境）：
 
 ```bash
-pip install flask
+pip install -r requirements.txt
 python web_uploader.py
+pip install flask
 pip install opencv-python
 ```
 
