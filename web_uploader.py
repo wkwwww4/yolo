@@ -109,11 +109,20 @@ def api_detect():
     try:
         start_time = time.time()
         img_bytes = file.read()
+        
+        # 檢查圖像大小
+        if len(img_bytes) == 0:
+            return jsonify({'error': '圖像為空'}), 400
+            
         nparr = np.frombuffer(img_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if frame is None:
             return jsonify({'error': '圖像解碼失敗'}), 400
+
+        # 檢查圖像維度
+        if frame.size == 0 or frame.shape[0] == 0 or frame.shape[1] == 0:
+            return jsonify({'error': '無效的圖像維度'}), 400
 
         # 運行 YOLO 檢測（只檢測人類，類別 0）
         model = get_yolo_model()
@@ -139,7 +148,10 @@ def api_detect():
         inference_time = (time.time() - start_time) * 1000
 
         # 編碼為 JPEG base64
-        _, buffer = cv2.imencode('.jpg', frame)
+        success, buffer = cv2.imencode('.jpg', frame)
+        if not success:
+            return jsonify({'error': '圖像編碼失敗'}), 500
+            
         img_base64 = base64.b64encode(buffer).decode('utf-8')
 
         # 保存最後的檢測結果
@@ -156,8 +168,10 @@ def api_detect():
             'inference_time': inference_time
         })
 
+    except cv2.error as e:
+        return jsonify({'error': f'OpenCV 錯誤: {str(e)}'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'處理錯誤: {str(e)}'}), 500
 
 
 @app.route('/api/latest_result')

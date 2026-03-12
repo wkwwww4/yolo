@@ -6,12 +6,13 @@
     <title>實時攝像頭檢測 - yolo_backend</title>
     <style>
       body { font-family: Arial, Helvetica, sans-serif; margin: 24px; }
-      .box { max-width: 960px; margin: auto; }
-      #video { border: 2px solid #333; width: 100%; max-width: 640px; margin: 10px 0; }
-      #canvas { display: none; }
-      #result { border: 2px solid #0c0; width: 100%; max-width: 640px; margin: 10px 0; }
+      .box { max-width: 1400px; margin: auto; }
+      video { border: 2px solid #333; width: 100%; max-width: 640px; margin: 10px 0; }
+      canvas { display: none; }
+      img { border: 2px solid #0c0; width: 100%; max-width: 640px; margin: 10px 0; }
       button { padding: 8px 16px; margin: 5px; font-size: 14px; cursor: pointer; }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
+      select { padding: 6px 10px; font-size: 14px; margin: 0 5px; }
       .status { margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 4px; }
       .info { color: #666; font-size: 12px; }
       a { color: #0066cc; }
@@ -25,22 +26,42 @@
       <div class="status">
         <p>狀態：<span id="status">就緒</span></p>
         <p class="info">
-          首次使用需要允許網站存取攝像頭。FPS 根據檢測速度自動調整（約 1-2 秒一幀）。
+          首次使用需要允許網站存取攝像頭。檢測頻率可自定義：高速 500ms、平衡 1秒、經濟 2-3秒。
+          <br/>左側顯示實時攝像頭，右側顯示檢測結果，確保畫面同步。
         </p>
       </div>
 
       <h3>攝像頭串流</h3>
-      <video id="video" autoplay playsinline></video>
-      <canvas id="canvas"></canvas>
+      <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 320px;">
+          <p style="margin: 0 0 5px 0; font-weight: bold;">實時攝像頭</p>
+          <video id="video" autoplay playsinline style="border: 2px solid #333; width: 100%; max-width: 640px;"></video>
+          <canvas id="canvas"></canvas>
+        </div>
+        <div style="flex: 1; min-width: 320px;">
+          <p style="margin: 0 0 5px 0; font-weight: bold;">檢測結果</p>
+          <img id="result" src="" alt="檢測結果" style="display: none; border: 2px solid #0c0; width: 100%; max-width: 640px;">
+          <div id="noResultPlaceholder" style="width: 100%; max-width: 640px; height: 480px; background: #f0f0f0; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; margin: 10px 0;">
+            <p style="color: #999;">等待檢測結果...</p>
+          </div>
+        </div>
+      </div>
 
-      <div>
+      <div style="margin-top: 15px;">
         <button id="startBtn" type="button">開始檢測</button>
         <button id="stopBtn" type="button" disabled>停止檢測</button>
         <button id="captureBtn" type="button">拍照 (發送檢測)</button>
+        
+        <label style="margin-left: 20px;">
+          檢測頻率：
+          <select id="detectionInterval">
+            <option value="500">每 500ms (高速)</option>
+            <option value="1000" selected>每 1秒 (平衡)</option>
+            <option value="2000">每 2秒 (經濟)</option>
+            <option value="3000">每 3秒 (低速)</option>
+          </select>
+        </label>
       </div>
-
-      <h3>檢測結果</h3>
-      <img id="result" src="" alt="檢測結果" style="display: none; border: 2px solid #0c0; width: 100%; max-width: 640px; margin: 10px 0;">
       <div style="border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin: 10px 0;">
         <p class="info">人數：<strong id="detection-people">-</strong> | 時間：<strong id="detection-time">-</strong>ms</p>
         <button id="downloadBtn" type="button" disabled style="background-color: #0066cc; color: white; padding: 8px 16px; margin: 5px; cursor: pointer;">⬇ 下載檢測結果</button>
@@ -53,6 +74,7 @@
       const canvas = document.getElementById('canvas');
       const ctx = canvas.getContext('2d');
       const result = document.getElementById('result');
+      const noResultPlaceholder = document.getElementById('noResultPlaceholder');
       const statusElem = document.getElementById('status');
       const detectionInfoElem = document.getElementById('detection-info');
       const startBtn = document.getElementById('startBtn');
@@ -64,6 +86,8 @@
       let frameCount = 0;
       let lastResultBase64 = null;
       let detectionStats = [];
+      let lastDetectionTime = 0;  // 追蹤最後一次檢測時間
+      let detectionInterval = 1000;  // 預設 1 秒檢測一次
 
       startBtn.addEventListener('click', async () => {
         try {
@@ -92,6 +116,12 @@
         startBtn.disabled = false;
         stopBtn.disabled = true;
         captureBtn.disabled = true;
+      });
+
+      // 檢測頻率選擇框事件
+      document.getElementById('detectionInterval').addEventListener('change', (e) => {
+        detectionInterval = parseInt(e.target.value);
+        statusElem.textContent = `已更改檢測頻率為 ${detectionInterval}ms`;
       });
 
       captureBtn.addEventListener('click', () => {
@@ -128,15 +158,21 @@
         isRunning = true;
         statusElem.textContent = '檢測中...';
         frameCount = 0;
+        lastDetectionTime = Date.now();
+        noResultPlaceholder.style.display = 'flex';  // 顯示佔位符
+        result.style.display = 'none';  // 隱藏舊結果
         detectLoop();
       }
 
       function detectLoop() {
         if (!isRunning || !stream) return;
 
-        frameCount++;
-        if (frameCount % 15 === 0) { // 每 15 幀發送一次（根據幀率自動調整）
+        const now = Date.now();
+        
+        // 基於固定時間間隔而非幀數
+        if (now - lastDetectionTime >= detectionInterval) {
           sendFrame();
+          lastDetectionTime = now;
         }
 
         requestAnimationFrame(detectLoop);
@@ -145,6 +181,7 @@
       function sendFrame() {
         if (!video.videoWidth || !video.videoHeight) return;
 
+        const sendTime = Date.now();
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0);
@@ -154,15 +191,22 @@
           formData.append('image', blob, 'frame.jpg');
 
           statusElem.textContent = '檢測中...';
+          const fetchStartTime = Date.now();
+          
           fetch('/api/detect', {
             method: 'POST',
             body: formData
           })
           .then(res => res.json())
           .then(data => {
+            const fetchEndTime = Date.now();
+            const serverTime = data.inference_time || 0;
+            const networkTime = fetchEndTime - fetchStartTime - serverTime;
+            
             if (data.image) {
               result.src = 'data:image/jpeg;base64,' + data.image;
-              result.style.display = 'block';
+              result.style.display = 'block';  // 顯示結果圖片
+              noResultPlaceholder.style.display = 'none';  // 隱藏佔位符
               lastResultBase64 = data.image;
               document.getElementById('downloadBtn').disabled = false;
               document.getElementById('downloadCsvBtn').disabled = false;
@@ -170,13 +214,16 @@
               document.getElementById('detection-people').textContent = data.people_count;
               document.getElementById('detection-time').textContent = data.inference_time.toFixed(1);
               
+              const timestamp = new Date(sendTime).toLocaleTimeString();
               detectionStats.push({
-                timestamp: new Date().toISOString(),
+                timestamp: timestamp,
                 people: data.people_count,
                 time: data.inference_time
               });
               
-              statusElem.textContent = `✓ 檢測完成 (人數: ${data.people_count})`;
+              statusElem.textContent = `✓ 檢測完成 (人數: ${data.people_count}, 耗時: ${data.inference_time.toFixed(1)}ms, 網路: ${networkTime.toFixed(0)}ms) [${timestamp}]`;
+            } else if (data.error) {
+              statusElem.textContent = `檢測錯誤: ${data.error}`;
             }
           })
           .catch(err => {

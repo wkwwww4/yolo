@@ -23,6 +23,7 @@
 ```bash
 pip install flask
 python web_uploader.py
+pip install opencv-python
 ```
 
 預設會在 `http://127.0.0.1:5000/` 提供上傳頁面（本地瀏覽器訪問）。上傳後的影片會存放到專案 `video/` 資料夾，之後可由 `检测人流.py` 批次處理。
