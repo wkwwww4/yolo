@@ -22,9 +22,8 @@
 
 ```bash
 pip install -r requirements.txt
-python web_uploader.py
-pip install flask
-pip install opencv-python
+/usr/local/python/3.12.1/bin/pip3 install --force-reinstall opencv-python-headless
+
 ```
 
 預設會在 `http://127.0.0.1:5000/` 提供上傳頁面（本地瀏覽器訪問）。上傳後的影片會存放到專案 `video/` 資料夾，之後可由 `检测人流.py` 批次處理。

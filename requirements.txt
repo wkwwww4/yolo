@@ -1,4 +1,4 @@
 flask
-opencv-python-headless
+opencv-python-headless>=4.6.0
 ultralytics
 numpy
