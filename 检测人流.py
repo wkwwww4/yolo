@@ -5,6 +5,7 @@ import os
 import glob
 from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
+import sqlite3
 
 def batch_detect_videos(input_folder, output_folder="batch_results"):
     """
@@ -13,6 +14,22 @@ def batch_detect_videos(input_folder, output_folder="batch_results"):
     # 创建输出文件夹
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
+    
+    # 创建数据库连接
+    db_path = os.path.join(output_folder, "crowd_detection.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # 创建表（如果不存在）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS video_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_name TEXT UNIQUE,
+            people_count INTEGER,
+            processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
     
     # 获取所有视频文件（包括HEVC格式）
     video_extensions = ['*.mp4', '*.avi', '*.mov', '*.mkv', '*.MP4', '*.hevc', '*.h265']
@@ -53,6 +70,13 @@ def batch_detect_videos(input_folder, output_folder="batch_results"):
             # 记录该视频的统计结果
             video_stats[video_name] = total_people
             
+            # 插入数据到数据库
+            cursor.execute('''
+                INSERT OR REPLACE INTO video_stats (video_name, people_count)
+                VALUES (?, ?)
+            ''', (video_name, total_people))
+            conn.commit()
+            
             print(f"✓ 视频 {video_name} 分析完成！总人数: {total_people}")
             print(f"✓ 结果视频保存为: {video_output_name}")
             
@@ -66,6 +90,9 @@ def batch_detect_videos(input_folder, output_folder="batch_results"):
     print("="*60)
     for video_name, people_count in video_stats.items():
         print(f"  📹 {video_name}: {people_count}")
+    
+    # 关闭数据库连接
+    conn.close()
     
     return video_stats
 
