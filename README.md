@@ -10,10 +10,6 @@
 - 使用 ByteTrack 分配唯一 ID 並統計出現過的不同人數
 - 輸出：每支影片的標註影片（可選）與 `tracking_results/人流统计报告.txt`
 
-**快速開始（建議）**
-
----
-
 **Web 上傳介面（可選）**
 
 本專案也提供一個簡單的 Web 上傳頁面，方便非開發者上傳影片到專案的 `video/` 資料夾。實作檔案：`web_uploader.py` 以及 `templates/index.html`。
@@ -97,4 +93,6 @@ cat tracking_results/人流统计报告.txt
 API
 curl http://127.0.0.1:5000/api/latest_result
 
+docker 
+docker run -p 5000:5000 yolo-web-app:v1
 
